@@ -156,7 +156,7 @@ textarea.inp{resize:vertical;min-height:64px}
         <div style="width:48px;height:48px;border-radius:12px;background:var(--ac);display:flex;align-items:center;justify-content:center;font-size:26px;color:#1c1c1e;flex-shrink:0">✓</div>
         <div>
           <div style="font-size:20px;font-weight:700;color:var(--tx)">ToDo</div>
-          <div style="font-size:13px;color:var(--mu);margin-top:2px">Versie 2.2</div>
+          <div style="font-size:13px;color:var(--mu);margin-top:2px">Versie 3.0</div>
         </div>
       </div>
       <div style="border-top:1px solid var(--bd);padding-top:12px;font-size:14px;color:var(--tx2);line-height:1.8">
@@ -274,8 +274,9 @@ textarea.inp{resize:vertical;min-height:64px}
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, where }
-  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getDatabase, ref, set, remove, update, onValue, push }
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+
 const FB = {
   apiKey:            "AIzaSyCM14wv7V6Zahhu28c70vCDo-SqV5XowAk",
   authDomain:        "taken-edc36.firebaseapp.com",
@@ -285,6 +286,7 @@ const FB = {
   messagingSenderId: "422526600905",
   appId:             "1:422526600905:web:ce633f7ba73208c457ef18"
 };
+
 const WDN = ['zondag','maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag'];
 const NTH = ['eerste','tweede','derde','vierde','laatste'];
 const ge   = id => document.getElementById(id);
@@ -293,15 +295,18 @@ const dagN = s  => ['zo','ma','di','wo','do','vr','za'][new Date(s+'T12:00:00').
 const esc  = s  => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 let tasks = [], tab = 'upcoming', zoek = '', editId = null;
 let fbOk = false, fbUser = null, unsub = null, auth, db;
+
 try {
-  if (FB.apiKey === 'JOUW_API_KEY') throw 0;
   const app = initializeApp(FB);
-  auth = getAuth(app); db = getFirestore(app); fbOk = true;
+  auth = getAuth(app);
+  db = getDatabase(app);
+  fbOk = true;
 } catch(_) {
   ge('auth-avatar').hidden = true;
   toonNotice();
   loadLocal();
 }
+
 if (fbOk) {
   onAuthStateChanged(auth, function(user) {
     fbUser = user;
@@ -321,17 +326,20 @@ if (fbOk) {
     else signInWithPopup(auth, new GoogleAuthProvider());
   });
 }
+
 function startListen() {
   if (unsub) unsub();
-  unsub = onSnapshot(
-    query(collection(db, 'tasks'), where('uid', '==', fbUser.uid)),
-    function(snap) {
-      tasks = snap.docs.map(function(d) { return Object.assign({ id: d.id }, d.data()); });
-      autoVooruitschuiven();
-      render();
-    }
-  );
+  const takenRef = ref(db, 'users/' + fbUser.uid + '/tasks');
+  unsub = onValue(takenRef, function(snap) {
+    tasks = [];
+    snap.forEach(function(child) {
+      tasks.push(Object.assign({ id: child.key }, child.val()));
+    });
+    autoVooruitschuiven();
+    render();
+  });
 }
+
 function loadLocal() {
   tasks = JSON.parse(localStorage.getItem('taken_v9') || '[]');
   autoVooruitschuiven();
@@ -342,12 +350,10 @@ function toonNotice() {
   const n = document.createElement('div');
   n.className = 'notice';
   n.innerHTML = '<strong>⚙️ Firebase niet ingesteld — werkt lokaal</strong>' +
-    'Ga naar <strong>console.firebase.google.com</strong>, maak een project aan, ' +
-    'schakel Firestore + Google Auth in en plak je config bij <code>FB</code>.';
+    'Ga naar <strong>console.firebase.google.com</strong>, schakel Google Auth in en stel de beveiligingsregels in.';
   ge('main').prepend(n);
 }
 
-// ── Herhalende taken automatisch doorschuiven ─────────
 function autoVooruitschuiven() {
   const today = new Date().toISOString().split('T')[0];
   let changed = false;
@@ -374,8 +380,13 @@ function autoVooruitschuiven() {
 
 async function slaOp(data) {
   if (fbOk && fbUser) {
-    if (editId) await updateDoc(doc(db, 'tasks', editId), data);
-    else        await addDoc(collection(db, 'tasks'), Object.assign({}, data, { uid: fbUser.uid, at: Date.now() }));
+    const takenRef = ref(db, 'users/' + fbUser.uid + '/tasks');
+    if (editId) {
+      await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + editId), data);
+    } else {
+      const nieuwRef = push(takenRef);
+      await set(nieuwRef, Object.assign({}, data, { at: Date.now() }));
+    }
   } else {
     if (editId) {
       const i = tasks.findIndex(function(t) { return t.id === editId; });
@@ -386,25 +397,33 @@ async function slaOp(data) {
     saveLocal(); render();
   }
 }
+
 async function verwijder(id) {
   if (!confirm('Taak verwijderen?')) return;
-  if (fbOk && fbUser) await deleteDoc(doc(db, 'tasks', id));
-  else { tasks = tasks.filter(function(t) { return t.id !== id; }); saveLocal(); render(); }
+  if (fbOk && fbUser) {
+    await remove(ref(db, 'users/' + fbUser.uid + '/tasks/' + id));
+  } else {
+    tasks = tasks.filter(function(t) { return t.id !== id; });
+    saveLocal(); render();
+  }
 }
+
 async function toggleSter(id) {
   const t = tasks.find(function(t) { return t.id === id; }); if (!t) return;
   const ster = !t.ster;
-  if (fbOk && fbUser) await updateDoc(doc(db, 'tasks', id), { ster: ster });
-  else {
+  if (fbOk && fbUser) {
+    await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { ster: ster });
+  } else {
     const i = tasks.findIndex(function(t) { return t.id === id; });
     tasks[i] = Object.assign({}, tasks[i], { ster: ster });
     saveLocal(); render();
   }
 }
+
 async function voltooidZonderConfirm(id) {
   var t = tasks.find(function(t) { return t.id === id; }); if (!t) return;
   if (!t.repeat || !t.date) {
-    if (fbOk && fbUser) await deleteDoc(doc(db, 'tasks', id));
+    if (fbOk && fbUser) await remove(ref(db, 'users/' + fbUser.uid + '/tasks/' + id));
     else { tasks = tasks.filter(function(t) { return t.id !== id; }); saveLocal(); render(); }
     return;
   }
@@ -413,12 +432,12 @@ async function voltooidZonderConfirm(id) {
   if (e.type === 'na') {
     var done = (e.done || 0) + 1;
     if (done >= e.na) {
-      if (fbOk && fbUser) await deleteDoc(doc(db, 'tasks', id));
+      if (fbOk && fbUser) await remove(ref(db, 'users/' + fbUser.uid + '/tasks/' + id));
       else { tasks = tasks.filter(function(t) { return t.id !== id; }); saveLocal(); render(); }
       return;
     }
     var nr = Object.assign({}, t.repeat, { eindigt: Object.assign({}, e, { done: done }) });
-    if (fbOk && fbUser) await updateDoc(doc(db, 'tasks', id), { date: next, repeat: nr });
+    if (fbOk && fbUser) await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { date: next, repeat: nr });
     else {
       var i = tasks.findIndex(function(t) { return t.id === id; });
       tasks[i] = Object.assign({}, tasks[i], { date: next, repeat: nr });
@@ -427,11 +446,11 @@ async function voltooidZonderConfirm(id) {
     return;
   }
   if (e.type === 'op' && e.op && next > e.op) {
-    if (fbOk && fbUser) await deleteDoc(doc(db, 'tasks', id));
+    if (fbOk && fbUser) await remove(ref(db, 'users/' + fbUser.uid + '/tasks/' + id));
     else { tasks = tasks.filter(function(t) { return t.id !== id; }); saveLocal(); render(); }
     return;
   }
-  if (fbOk && fbUser) await updateDoc(doc(db, 'tasks', id), { date: next });
+  if (fbOk && fbUser) await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { date: next });
   else {
     var i2 = tasks.findIndex(function(t) { return t.id === id; });
     tasks[i2] = Object.assign({}, tasks[i2], { date: next });
@@ -439,7 +458,6 @@ async function voltooidZonderConfirm(id) {
   }
 }
 
-// ── Verplaats taak: verleden→vandaag, anders 1 dag later ──
 async function verplaatsEenDagLater(id) {
   var t = tasks.find(function(t) { return t.id === id; }); if (!t) return;
   var today = new Date().toISOString().split('T')[0];
@@ -452,7 +470,7 @@ async function verplaatsEenDagLater(id) {
     nieuweDatum = huidigeDatum.toISOString().split('T')[0];
   }
   if (fbOk && fbUser) {
-    await updateDoc(doc(db, 'tasks', id), { date: nieuweDatum });
+    await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { date: nieuweDatum });
   } else {
     var i = tasks.findIndex(function(t) { return t.id === id; });
     if (i >= 0) { tasks[i] = Object.assign({}, tasks[i], { date: nieuweDatum }); saveLocal(); render(); }
@@ -468,7 +486,7 @@ async function voltooi(id) {
     const done = (e.done || 0) + 1;
     if (done >= e.na) { verwijder(id); return; }
     const nr = Object.assign({}, t.repeat, { eindigt: Object.assign({}, e, { done: done }) });
-    if (fbOk && fbUser) await updateDoc(doc(db, 'tasks', id), { date: next, repeat: nr });
+    if (fbOk && fbUser) await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { date: next, repeat: nr });
     else {
       const i = tasks.findIndex(function(t) { return t.id === id; });
       tasks[i] = Object.assign({}, tasks[i], { date: next, repeat: nr });
@@ -477,13 +495,14 @@ async function voltooi(id) {
     return;
   }
   if (e.type === 'op' && e.op && next > e.op) { verwijder(id); return; }
-  if (fbOk && fbUser) await updateDoc(doc(db, 'tasks', id), { date: next });
+  if (fbOk && fbUser) await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { date: next });
   else {
     const i = tasks.findIndex(function(t) { return t.id === id; });
     tasks[i] = Object.assign({}, tasks[i], { date: next });
     saveLocal(); render();
   }
 }
+
 function volgenDatum(dateStr, repeat) {
   if (!repeat) return null;
   const type = repeat.type, iv = repeat.interval || 1;
@@ -542,7 +561,6 @@ function rLabel(r) {
   if (e.type === 'na' && e.na) s += ' · ' + (e.na - (e.done || 0)) + 'x resterend';
   return s;
 }
-// ── Sorteer hulpfuncties ──────────────────────────────
 function intervalDagen(t) {
   if (!t.repeat) return 999999;
   var type = t.repeat.type, iv = t.repeat.interval || 1;
@@ -553,14 +571,11 @@ function intervalDagen(t) {
   return 999999;
 }
 function alfa(t) { return (t.desc || '').toLowerCase(); }
-
 function sortPerDag(arr) {
   return arr.slice().sort(function(a, b) {
-    var aSter = a.ster ? 0 : 1;
-    var bSter = b.ster ? 0 : 1;
+    var aSter = a.ster ? 0 : 1, bSter = b.ster ? 0 : 1;
     if (aSter !== bSter) return aSter - bSter;
-    var aHerh = a.repeat ? 1 : 0;
-    var bHerh = b.repeat ? 1 : 0;
+    var aHerh = a.repeat ? 1 : 0, bHerh = b.repeat ? 1 : 0;
     if (aHerh !== bHerh) return aHerh - bHerh;
     if (!a.repeat) return alfa(a) < alfa(b) ? -1 : alfa(a) > alfa(b) ? 1 : 0;
     var iA = intervalDagen(a), iB = intervalDagen(b);
@@ -568,30 +583,22 @@ function sortPerDag(arr) {
     return alfa(a) < alfa(b) ? -1 : alfa(a) > alfa(b) ? 1 : 0;
   });
 }
-
 function sortLijst(arr) {
   return arr.slice().sort(function(a, b) {
-    var aSter = a.ster ? 0 : 1;
-    var bSter = b.ster ? 0 : 1;
+    var aSter = a.ster ? 0 : 1, bSter = b.ster ? 0 : 1;
     if (aSter !== bSter) return aSter - bSter;
     return alfa(a) < alfa(b) ? -1 : alfa(a) > alfa(b) ? 1 : 0;
   });
 }
-
 function render() {
   const td = new Date().toISOString().split('T')[0];
   const tm = new Date(); tm.setDate(tm.getDate() + 1);
   const morgen = tm.toISOString().split('T')[0];
   const sq = zoek.toLowerCase();
   const all = sq ? tasks.filter(function(t) { return (t.desc || '').toLowerCase().indexOf(sq) >= 0; }) : tasks;
-  var upcoming = all.filter(function(t) { return t.date && t.date >= td; }).sort(function(a,b) {
-    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-    return 0;
-  });
-  var archive = all.filter(function(t) { return t.date && t.date < td; }).sort(function(a,b) {
-    return a.date > b.date ? -1 : 1;
-  });
-  var nodate = sortLijst(all.filter(function(t) { return !t.date; }));
+  var upcoming = all.filter(function(t) { return t.date && t.date >= td; }).sort(function(a,b) { return a.date < b.date ? -1 : 1; });
+  var archive  = all.filter(function(t) { return t.date && t.date < td;  }).sort(function(a,b) { return a.date > b.date ? -1 : 1; });
+  var nodate   = sortLijst(all.filter(function(t) { return !t.date; }));
   ge('n-up').textContent = upcoming.length;
   ge('n-ar').textContent = archive.length;
   ge('n-nd').textContent = nodate.length;
@@ -604,23 +611,15 @@ function render() {
       var id = b.dataset.id;
       var t = tasks.find(function(t) { return t.id === id; });
       if (!t) return;
-      if (!t.repeat || !t.date) {
-        if (!confirm('Taak verwijderen?')) return;
-      }
+      if (!t.repeat || !t.date) { if (!confirm('Taak verwijderen?')) return; }
       var rij = b.closest('.tr');
-      b.classList.add('gedaan');
-      b.textContent = '\u2713';
-      if (rij) {
-        rij.style.maxHeight = rij.offsetHeight + 'px';
-        setTimeout(function() { rij.classList.add('fade-out'); }, 200);
-      }
+      b.classList.add('gedaan'); b.textContent = '\u2713';
+      if (rij) { rij.style.maxHeight = rij.offsetHeight + 'px'; setTimeout(function() { rij.classList.add('fade-out'); }, 200); }
       setTimeout(function() { voltooidZonderConfirm(id); }, 650);
     });
   });
   m.querySelectorAll('.star-btn').forEach(function(b) { b.addEventListener('click', function() { toggleSter(b.dataset.id); }); });
-  m.querySelectorAll('.clock-btn').forEach(function(b) {
-    b.addEventListener('click', function() { verplaatsEenDagLater(b.dataset.id); });
-  });
+  m.querySelectorAll('.clock-btn').forEach(function(b) { b.addEventListener('click', function() { verplaatsEenDagLater(b.dataset.id); }); });
   m.querySelectorAll('.tb').forEach(function(b) { b.addEventListener('click', function() { openEdit(b.dataset.id); }); });
 }
 function klokIcoon() {
@@ -641,8 +640,7 @@ function rij(t) {
     '<div style="display:flex;flex-direction:row;align-items:center;gap:0">' +
     '<button class="clock-btn" data-id="' + t.id + '" title="1 dag later">' + klokIcoon() + '</button>' +
     '<button class="star-btn' + (t.ster ? ' on' : '') + '" data-id="' + t.id + '">' + sterIcoon(t.ster) + '</button>' +
-    '</div>' +
-    '</div>';
+    '</div></div>';
 }
 function dagLabel(date, td, morgen) {
   if (date === td)     return '<div class="dh today">Vandaag</div>';
@@ -664,11 +662,7 @@ function flatList(lijst) {
 }
 (function() {
   const sel = ge('f-maanddag');
-  for (let i = 1; i <= 31; i++) {
-    const o = document.createElement('option');
-    o.value = i; o.textContent = 'Dag ' + i;
-    sel.appendChild(o);
-  }
+  for (let i = 1; i <= 31; i++) { const o = document.createElement('option'); o.value = i; o.textContent = 'Dag ' + i; sel.appendChild(o); }
 })();
 function syncEenheid(type) {
   ge('f-eenheid').value = type === 'none' ? 'day' : type;
@@ -715,9 +709,7 @@ function vulRepeat(r) {
   ge('f-rtype').value = r.type; ge('f-eenheid').value = r.type; ge('f-interval').value = r.interval || 1;
   syncEenheid(r.type);
   if (r.type === 'week' && r.weekdays) {
-    r.weekdays.forEach(function(d) {
-      const b = document.querySelector('.wd[data-d="' + d + '"]'); if (b) b.classList.add('on');
-    });
+    r.weekdays.forEach(function(d) { const b = document.querySelector('.wd[data-d="' + d + '"]'); if (b) b.classList.add('on'); });
   }
   if (r.type === 'month') {
     const mm = r.mmode || 'monthday';
@@ -755,10 +747,8 @@ function exportTaken() {
   const blob = new Blob([data], { type: 'application/json' });
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
-  a.href = url;
-  a.download = 'todo-backup-' + new Date().toISOString().split('T')[0] + '.json';
-  a.click();
-  URL.revokeObjectURL(url);
+  a.href = url; a.download = 'todo-backup-' + new Date().toISOString().split('T')[0] + '.json';
+  a.click(); URL.revokeObjectURL(url);
   ge('menu-popup').classList.remove('open');
 }
 function importTaken(file) {
@@ -768,11 +758,7 @@ function importTaken(file) {
     try {
       const imported = JSON.parse(ev.target.result);
       if (!Array.isArray(imported)) { alert('Ongeldig bestand.'); return; }
-      const keuze = confirm(
-        imported.length + ' taken gevonden.\n\n' +
-        'OK = samenvoegen met huidige taken\n' +
-        'Annuleren = huidige taken vervangen'
-      );
+      const keuze = confirm(imported.length + ' taken gevonden.\n\nOK = samenvoegen met huidige taken\nAnnuleren = huidige taken vervangen');
       if (keuze) {
         const ids = new Set(tasks.map(function(t) { return t.id; }));
         const nieuw = imported.filter(function(t) { return !ids.has(t.id); });
@@ -783,31 +769,18 @@ function importTaken(file) {
         alert('Taken vervangen door ' + imported.length + ' geimporteerde taken.');
       }
       saveLocal(); render();
-    } catch(err) {
-      alert('Fout bij inlezen: ' + err.message);
-    }
+    } catch(err) { alert('Fout bij inlezen: ' + err.message); }
     ge('btn-import').value = '';
   };
   reader.readAsText(file);
 }
-ge('menu-btn').addEventListener('click', function(e) {
-  e.stopPropagation();
-  ge('menu-popup').classList.toggle('open');
-});
-document.addEventListener('click', function() {
-  ge('menu-popup').classList.remove('open');
-});
+ge('menu-btn').addEventListener('click', function(e) { e.stopPropagation(); ge('menu-popup').classList.toggle('open'); });
+document.addEventListener('click', function() { ge('menu-popup').classList.remove('open'); });
 ge('menu-popup').addEventListener('click', function(e) { e.stopPropagation(); });
 ge('btn-export').addEventListener('click', exportTaken);
-ge('btn-import-trigger').addEventListener('click', function() {
-  ge('menu-popup').classList.remove('open');
-  ge('btn-import').click();
-});
+ge('btn-import-trigger').addEventListener('click', function() { ge('menu-popup').classList.remove('open'); ge('btn-import').click(); });
 ge('btn-import').addEventListener('change', function(e) { importTaken(e.target.files[0]); });
-ge('btn-over').addEventListener('click', function() {
-  ge('menu-popup').classList.remove('open');
-  ge('ov-over').classList.remove('hidden');
-});
+ge('btn-over').addEventListener('click', function() { ge('menu-popup').classList.remove('open'); ge('ov-over').classList.remove('hidden'); });
 ge('over-sluit-x').addEventListener('click', function() { ge('ov-over').classList.add('hidden'); });
 ge('over-sluit-ok').addEventListener('click', function() { ge('ov-over').classList.add('hidden'); });
 ge('ov-over').addEventListener('click', function(e) { if (e.target === ge('ov-over')) ge('ov-over').classList.add('hidden'); });
@@ -822,21 +795,16 @@ ge('btn-save').addEventListener('click', async function() {
   setTimeout(function() {
     var alleRijen = document.querySelectorAll('.tr');
     if (!alleRijen.length) return;
-    var doelDatum = date || '';
-    var gevonden = null;
+    var doelDatum = date || '', gevonden = null;
     if (doelDatum) {
-      var datumHdrs = document.querySelectorAll('.dh');
-      datumHdrs.forEach(function(hdr) {
+      document.querySelectorAll('.dh').forEach(function(hdr) {
         if (!gevonden) {
           var dg = hdr.closest('.dg');
           if (dg) {
             var eersteRij = dg.querySelector('.tr');
             if (eersteRij) {
               var id = eersteRij.querySelector('[data-id]');
-              if (id) {
-                var t = tasks.find(function(t) { return t.id === id.dataset.id; });
-                if (t && t.date === doelDatum) gevonden = hdr;
-              }
+              if (id) { var t = tasks.find(function(t) { return t.id === id.dataset.id; }); if (t && t.date === doelDatum) gevonden = hdr; }
             }
           }
         }
@@ -862,7 +830,7 @@ document.querySelectorAll('.tab').forEach(function(el) {
   });
 });
 ge('q').addEventListener('input', function(e) { zoek = e.target.value; render(); });
-const mf = { name: 'ToDo v2.2', short_name: 'ToDo v2.2', start_url: '.', display: 'standalone',
+const mf = { name: 'ToDo v3.0', short_name: 'ToDo v3.0', start_url: '.', display: 'standalone',
   background_color: '#1c1c1e', theme_color: '#1c1c1e',
   icons: [{ src: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%234fc3f7'/><text y='.9em' font-size='70' x='15'>%E2%9C%93</text></svg>", sizes: 'any', type: 'image/svg+xml' }] };
 ge('mflink').href = URL.createObjectURL(new Blob([JSON.stringify(mf)], { type: 'application/json' }));
