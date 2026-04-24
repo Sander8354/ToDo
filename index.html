@@ -272,7 +272,7 @@ textarea.inp{resize:vertical;min-height:64px}
 </div>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { getDatabase, ref, set, remove, update, onValue, push }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
@@ -308,6 +308,7 @@ try {
 }
 
 if (fbOk) {
+  getRedirectResult(auth).catch(function(e) { console.error("redirect error", e); });
   onAuthStateChanged(auth, function(user) {
     fbUser = user;
     const av = ge('auth-avatar');
@@ -323,7 +324,7 @@ if (fbOk) {
   });
   ge('auth-avatar').addEventListener('click', function() {
     if (fbUser) signOut(auth);
-    else signInWithPopup(auth, new GoogleAuthProvider());
+    else signInWithRedirect(auth, new GoogleAuthProvider());
   });
 }
 
