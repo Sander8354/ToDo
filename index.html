@@ -277,12 +277,13 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChang
 import { getFirestore, collection, doc, addDoc, updateDoc, deleteDoc, onSnapshot, query, where }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 const FB = {
-  apiKey:            "JOUW_API_KEY",
-  authDomain:        "JOUW_PROJECT.firebaseapp.com",
-  projectId:         "JOUW_PROJECT_ID",
-  storageBucket:     "JOUW_PROJECT.appspot.com",
-  messagingSenderId: "JOUW_SENDER_ID",
-  appId:             "JOUW_APP_ID"
+  apiKey:            "AIzaSyCM14wv7V6Zahhu28c70vCDo-SqV5XowAk",
+  authDomain:        "taken-edc36.firebaseapp.com",
+  databaseURL:       "https://taken-edc36-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:         "taken-edc36",
+  storageBucket:     "taken-edc36.firebasestorage.app",
+  messagingSenderId: "422526600905",
+  appId:             "1:422526600905:web:ce633f7ba73208c457ef18"
 };
 const WDN = ['zondag','maandag','dinsdag','woensdag','donderdag','vrijdag','zaterdag'];
 const NTH = ['eerste','tweede','derde','vierde','laatste'];
@@ -818,15 +819,12 @@ ge('btn-save').addEventListener('click', async function() {
   if (!desc) { alert('Voer een omschrijving in.'); return; }
   await slaOp({ desc: desc, date: date || '', repeat: leesRepeat() });
   sluit();
-  // Scroll naar de zojuist toegevoegde taak
   setTimeout(function() {
     var alleRijen = document.querySelectorAll('.tr');
     if (!alleRijen.length) return;
-    // Zoek de rij met de bijbehorende taak (laatste toegevoegde of op datum)
     var doelDatum = date || '';
     var gevonden = null;
     if (doelDatum) {
-      // Zoek het datumblok dat overeenkomt
       var datumHdrs = document.querySelectorAll('.dh');
       datumHdrs.forEach(function(hdr) {
         if (!gevonden) {
