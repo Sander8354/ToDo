@@ -506,9 +506,12 @@ function render(){
   else if(tab==='archive')m.innerHTML=gegroepeerd(archive,td,morgen,true);
   else m.innerHTML=flatList(nodate);
   if(scrollNaarId){
-    var doelEl=m.querySelector('[data-id="'+scrollNaarId+'"]');
-    if(doelEl){doelEl.closest('.tr').scrollIntoView({behavior:'smooth',block:'center'});}
+    var _sid=scrollNaarId;
     scrollNaarId=null;
+    setTimeout(function(){
+      var doelEl=m.querySelector('[data-id="'+_sid+'"]');
+      if(doelEl){doelEl.closest('.tr').scrollIntoView({behavior:'smooth',block:'center'});}
+    },150);
   }
   m.querySelectorAll('.chk').forEach(function(b){b.addEventListener('click',function(){var id=b.dataset.id;var t=tasks.find(function(t){return t.id===id;});if(!t)return;if(!t.repeat||!t.date){if(!confirm('Taak verwijderen?'))return;}var rij=b.closest('.tr');b.classList.add('gedaan');b.textContent='\u2713';if(rij){rij.style.maxHeight=rij.offsetHeight+'px';setTimeout(function(){rij.classList.add('fade-out');},200);}setTimeout(function(){voltooidZonderConfirm(id);},650);});});
   m.querySelectorAll('.star-btn').forEach(function(b){b.addEventListener('click',function(){toggleSter(b.dataset.id);});});
