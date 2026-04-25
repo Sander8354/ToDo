@@ -548,26 +548,24 @@ ge('btn-save').addEventListener('click',async function(){
   sluit();
   await slaOp(geslagenData);
   setTimeout(function(){
-    var doel=null;
     if(geslagenEditId){
-      // Bewerken: scroll naar de gewijzigde taak zelf
-      var el=document.querySelector('[data-id="'+geslagenEditId+'"]');
-      if(el)doel=el.closest('.tr');
-    } else {
-      // Nieuwe taak: zoek de exacte taakrij op basis van omschrijving en datum
-      var alleRijen=document.querySelectorAll('.tr');
-      alleRijen.forEach(function(rij){
-        if(doel)return;
-        var tb=rij.querySelector('.tt');
-        if(tb&&tb.textContent===geslagenData.desc){
-          var id=rij.querySelector('[data-id]');
-          if(id){
-            var t=tasks.find(function(t){return t.id===id.dataset.id;});
-            if(t&&t.date===(geslagenData.date||''))doel=rij;
-          }
-        }
-      });
+      // Bewerken: niet scrollen, positie laten staan
+      return;
     }
+    // Nieuwe taak: zoek de exacte taakrij op basis van omschrijving en datum
+    var doel=null;
+    var alleRijen=document.querySelectorAll('.tr');
+    alleRijen.forEach(function(rij){
+      if(doel)return;
+      var tb=rij.querySelector('.tt');
+      if(tb&&tb.textContent===geslagenData.desc){
+        var idEl=rij.querySelector('[data-id]');
+        if(idEl){
+          var t=tasks.find(function(t){return t.id===idEl.dataset.id;});
+          if(t&&t.date===(geslagenData.date||''))doel=rij;
+        }
+      }
+    });
     if(doel)doel.scrollIntoView({behavior:'smooth',block:'center'});
   },600);
 });
