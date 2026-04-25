@@ -291,7 +291,7 @@ const ge   = id => document.getElementById(id);
 const fmtD = s  => { const [y,m,d] = s.split('-'); return d+'-'+m+'-'+y; };
 const dagN = s  => ['zo','ma','di','wo','do','vr','za'][new Date(s+'T12:00:00').getDay()];
 const esc  = s  => (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-let tasks = [], tab = 'upcoming', zoek = '', editId = null;
+let tasks = [], tab = 'upcoming', zoek = '', editId = null, scrollNaarId = null;
 let fbOk = false, fbUser = null, unsub = null, auth, db;
 
 try {
@@ -505,6 +505,11 @@ function render(){
   if(tab==='upcoming')m.innerHTML=gegroepeerd(upcoming,td,morgen,false);
   else if(tab==='archive')m.innerHTML=gegroepeerd(archive,td,morgen,true);
   else m.innerHTML=flatList(nodate);
+  if(scrollNaarId){
+    var doelEl=m.querySelector('[data-id="'+scrollNaarId+'"]');
+    if(doelEl){doelEl.closest('.tr').scrollIntoView({behavior:'smooth',block:'center'});}
+    scrollNaarId=null;
+  }
   m.querySelectorAll('.chk').forEach(function(b){b.addEventListener('click',function(){var id=b.dataset.id;var t=tasks.find(function(t){return t.id===id;});if(!t)return;if(!t.repeat||!t.date){if(!confirm('Taak verwijderen?'))return;}var rij=b.closest('.tr');b.classList.add('gedaan');b.textContent='\u2713';if(rij){rij.style.maxHeight=rij.offsetHeight+'px';setTimeout(function(){rij.classList.add('fade-out');},200);}setTimeout(function(){voltooidZonderConfirm(id);},650);});});
   m.querySelectorAll('.star-btn').forEach(function(b){b.addEventListener('click',function(){toggleSter(b.dataset.id);});});
   m.querySelectorAll('.clock-btn').forEach(function(b){b.addEventListener('click',function(){verplaatsEenDagLater(b.dataset.id);});});
@@ -556,17 +561,8 @@ ge('btn-save').addEventListener('click',async function(){
     // Bewerken: herstel scrollpositie na render
     setTimeout(function(){ ge('main').scrollTop=scrollPos; },50);
   } else {
-    // Nieuwe taak: wacht tot de rij met het nieuwe ID zichtbaar is
-    var pogingen=0;
-    var zoekInterval=setInterval(function(){
-      pogingen++;
-      var idEl=document.querySelector('[data-id="'+nieuwId+'"]');
-      var doel=idEl?idEl.closest('.tr'):null;
-      if(doel||pogingen>20){
-        clearInterval(zoekInterval);
-        if(doel)doel.scrollIntoView({behavior:'smooth',block:'center'});
-      }
-    },100);
+    // Nieuwe taak: sla ID op, render() pikt het op
+    scrollNaarId=nieuwId;
   }
 });
 ge('f-rtype').addEventListener('change',function(){syncEenheid(this.value);});
