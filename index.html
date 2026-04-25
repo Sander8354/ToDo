@@ -391,8 +391,11 @@ async function slaOp(data) {
   if (fbOk && fbUser) {
     if (editId) {
       await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + editId), data);
+      return editId;
     } else {
-      await set(push(ref(db, 'users/' + fbUser.uid + '/tasks')), Object.assign({}, data, { at: Date.now() }));
+      const nieuwRef = push(ref(db, 'users/' + fbUser.uid + '/tasks'));
+      await set(nieuwRef, Object.assign({}, data, { at: Date.now() }));
+      return nieuwRef.key;
     }
   } else {
     if (editId) { const i = tasks.findIndex(function(t){return t.id===editId;}); if(i>=0)tasks[i]=Object.assign({},tasks[i],data); }
@@ -548,28 +551,17 @@ ge('btn-save').addEventListener('click',async function(){
   // Bewaar scrollpositie voor bewerken
   const scrollPos=ge('main').scrollTop;
   sluit();
-  await slaOp(geslagenData);
+  const nieuwId=await slaOp(geslagenData);
   if(geslagenEditId){
     // Bewerken: herstel scrollpositie na render
     setTimeout(function(){ ge('main').scrollTop=scrollPos; },50);
   } else {
-    // Nieuwe taak: wacht op Firebase render en zoek taak op desc+date
+    // Nieuwe taak: wacht tot de rij met het nieuwe ID zichtbaar is
     var pogingen=0;
     var zoekInterval=setInterval(function(){
       pogingen++;
-      var doel=null;
-      var alleRijen=document.querySelectorAll('.tr');
-      alleRijen.forEach(function(rij){
-        if(doel)return;
-        var tb=rij.querySelector('.tt');
-        if(tb&&tb.textContent===geslagenData.desc){
-          var idEl=rij.querySelector('[data-id]');
-          if(idEl){
-            var t=tasks.find(function(t){return t.id===idEl.dataset.id;});
-            if(t&&t.date===(geslagenData.date||''))doel=rij;
-          }
-        }
-      });
+      var idEl=document.querySelector('[data-id="'+nieuwId+'"]');
+      var doel=idEl?idEl.closest('.tr'):null;
       if(doel||pogingen>20){
         clearInterval(zoekInterval);
         if(doel)doel.scrollIntoView({behavior:'smooth',block:'center'});
