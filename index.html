@@ -144,7 +144,6 @@ textarea.inp{resize:vertical;min-height:64px}
 </div>
 <main id="main"></main>
 <button id="add-btn">+</button>
-<!-- OVER VENSTER -->
 <div class="ov hidden" id="ov-over">
   <div class="modal" style="border-radius:var(--r);max-width:340px;margin:auto;padding:0;overflow:hidden;position:relative">
     <div style="background:var(--sf2);padding:12px 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bd)">
@@ -159,7 +158,7 @@ textarea.inp{resize:vertical;min-height:64px}
           <div style="font-size:13px;color:var(--mu);margin-top:2px">Versie 3.0</div>
         </div>
       </div>
-      <div style="border-top:1px solid var(--bd);padding-top:12px;font-size:14px;color:var(--tx2);line-height:1.8">
+      <div style="border-top:1px solid var(--bd);padding-top:12px;font-size:14px;line-height:1.8">
         <div><span style="color:var(--mu)">Gemaakt door:</span> Sander Tas</div>
       </div>
     </div>
@@ -168,7 +167,6 @@ textarea.inp{resize:vertical;min-height:64px}
     </div>
   </div>
 </div>
-
 <div class="ov hidden" id="ov">
  <div class="modal">
   <div class="drag-bar"></div>
@@ -272,7 +270,7 @@ textarea.inp{resize:vertical;min-height:64px}
 </div>
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged }
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { getDatabase, ref, set, remove, update, onValue, push }
   from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
@@ -301,15 +299,17 @@ try {
   auth = getAuth(app);
   db = getDatabase(app);
   fbOk = true;
-} catch(_) {
+  console.log('Firebase OK');
+} catch(e) {
+  console.error('Firebase init fout:', e);
   ge('auth-avatar').hidden = true;
   toonNotice();
   loadLocal();
 }
 
 if (fbOk) {
-  getRedirectResult(auth).catch(function(e) { console.error("redirect error", e); });
   onAuthStateChanged(auth, function(user) {
+    console.log('Auth state:', user ? user.email : 'niet ingelogd');
     fbUser = user;
     const av = ge('auth-avatar');
     if (user) {
@@ -323,8 +323,18 @@ if (fbOk) {
     }
   });
   ge('auth-avatar').addEventListener('click', function() {
-    if (fbUser) signOut(auth);
-    else signInWithRedirect(auth, new GoogleAuthProvider());
+    if (fbUser) {
+      signOut(auth);
+    } else {
+      signInWithPopup(auth, new GoogleAuthProvider())
+        .then(function(result) {
+          console.log('Ingelogd:', result.user.email);
+        })
+        .catch(function(e) {
+          console.error('Login fout:', e.code, e.message);
+          alert('Login mislukt: ' + e.code);
+        });
+    }
   });
 }
 
@@ -336,8 +346,12 @@ function startListen() {
     snap.forEach(function(child) {
       tasks.push(Object.assign({ id: child.key }, child.val()));
     });
+    console.log('Taken geladen:', tasks.length);
     autoVooruitschuiven();
     render();
+  }, function(error) {
+    console.error('Database fout:', error.code, error.message);
+    alert('Database fout: ' + error.code);
   });
 }
 
@@ -350,8 +364,7 @@ function saveLocal() { localStorage.setItem('taken_v9', JSON.stringify(tasks)); 
 function toonNotice() {
   const n = document.createElement('div');
   n.className = 'notice';
-  n.innerHTML = '<strong>⚙️ Firebase niet ingesteld — werkt lokaal</strong>' +
-    'Ga naar <strong>console.firebase.google.com</strong>, schakel Google Auth in en stel de beveiligingsregels in.';
+  n.innerHTML = '<strong>⚙️ Firebase niet beschikbaar — werkt lokaal</strong>';
   ge('main').prepend(n);
 }
 
@@ -360,20 +373,15 @@ function autoVooruitschuiven() {
   let changed = false;
   tasks = tasks.map(function(t) {
     if (!t.repeat || !t.date || t.date >= today) return t;
-    let date = t.date;
-    let stappen = 0;
+    let date = t.date, stappen = 0;
     while (date < today && stappen < 1000) {
       const next = volgenDatum(date, t.repeat);
       if (!next || next === date) break;
       if (next > today) { date = today; break; }
-      date = next;
-      stappen++;
+      date = next; stappen++;
     }
     if (date < today) date = today;
-    if (date !== t.date) {
-      changed = true;
-      return Object.assign({}, t, { date: date });
-    }
+    if (date !== t.date) { changed = true; return Object.assign({}, t, { date: date }); }
     return t;
   });
   if (changed) saveLocal();
@@ -381,460 +389,177 @@ function autoVooruitschuiven() {
 
 async function slaOp(data) {
   if (fbOk && fbUser) {
-    const takenRef = ref(db, 'users/' + fbUser.uid + '/tasks');
     if (editId) {
       await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + editId), data);
     } else {
-      const nieuwRef = push(takenRef);
-      await set(nieuwRef, Object.assign({}, data, { at: Date.now() }));
+      await set(push(ref(db, 'users/' + fbUser.uid + '/tasks')), Object.assign({}, data, { at: Date.now() }));
     }
   } else {
-    if (editId) {
-      const i = tasks.findIndex(function(t) { return t.id === editId; });
-      if (i >= 0) tasks[i] = Object.assign({}, tasks[i], data);
-    } else {
-      tasks.push(Object.assign({ id: String(Date.now() + Math.random()), at: Date.now() }, data));
-    }
+    if (editId) { const i = tasks.findIndex(function(t){return t.id===editId;}); if(i>=0)tasks[i]=Object.assign({},tasks[i],data); }
+    else tasks.push(Object.assign({ id: String(Date.now()+Math.random()), at: Date.now() }, data));
     saveLocal(); render();
   }
 }
 
 async function verwijder(id) {
   if (!confirm('Taak verwijderen?')) return;
-  if (fbOk && fbUser) {
-    await remove(ref(db, 'users/' + fbUser.uid + '/tasks/' + id));
-  } else {
-    tasks = tasks.filter(function(t) { return t.id !== id; });
-    saveLocal(); render();
-  }
+  if (fbOk && fbUser) await remove(ref(db, 'users/'+fbUser.uid+'/tasks/'+id));
+  else { tasks=tasks.filter(function(t){return t.id!==id;}); saveLocal(); render(); }
 }
 
 async function toggleSter(id) {
-  const t = tasks.find(function(t) { return t.id === id; }); if (!t) return;
-  const ster = !t.ster;
-  if (fbOk && fbUser) {
-    await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { ster: ster });
-  } else {
-    const i = tasks.findIndex(function(t) { return t.id === id; });
-    tasks[i] = Object.assign({}, tasks[i], { ster: ster });
-    saveLocal(); render();
-  }
+  const t=tasks.find(function(t){return t.id===id;}); if(!t)return;
+  const ster=!t.ster;
+  if (fbOk && fbUser) await update(ref(db,'users/'+fbUser.uid+'/tasks/'+id),{ster:ster});
+  else { const i=tasks.findIndex(function(t){return t.id===id;}); tasks[i]=Object.assign({},tasks[i],{ster:ster}); saveLocal(); render(); }
 }
 
 async function voltooidZonderConfirm(id) {
-  var t = tasks.find(function(t) { return t.id === id; }); if (!t) return;
-  if (!t.repeat || !t.date) {
-    if (fbOk && fbUser) await remove(ref(db, 'users/' + fbUser.uid + '/tasks/' + id));
-    else { tasks = tasks.filter(function(t) { return t.id !== id; }); saveLocal(); render(); }
+  var t=tasks.find(function(t){return t.id===id;}); if(!t)return;
+  if(!t.repeat||!t.date){
+    if(fbOk&&fbUser)await remove(ref(db,'users/'+fbUser.uid+'/tasks/'+id));
+    else{tasks=tasks.filter(function(t){return t.id!==id;});saveLocal();render();}
     return;
   }
-  var e = t.repeat.eindigt || { type: 'nooit' };
-  var next = volgenDatum(t.date, t.repeat);
-  if (e.type === 'na') {
-    var done = (e.done || 0) + 1;
-    if (done >= e.na) {
-      if (fbOk && fbUser) await remove(ref(db, 'users/' + fbUser.uid + '/tasks/' + id));
-      else { tasks = tasks.filter(function(t) { return t.id !== id; }); saveLocal(); render(); }
+  var e=t.repeat.eindigt||{type:'nooit'};
+  var next=volgenDatum(t.date,t.repeat);
+  if(e.type==='na'){
+    var done=(e.done||0)+1;
+    if(done>=e.na){
+      if(fbOk&&fbUser)await remove(ref(db,'users/'+fbUser.uid+'/tasks/'+id));
+      else{tasks=tasks.filter(function(t){return t.id!==id;});saveLocal();render();}
       return;
     }
-    var nr = Object.assign({}, t.repeat, { eindigt: Object.assign({}, e, { done: done }) });
-    if (fbOk && fbUser) await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { date: next, repeat: nr });
-    else {
-      var i = tasks.findIndex(function(t) { return t.id === id; });
-      tasks[i] = Object.assign({}, tasks[i], { date: next, repeat: nr });
-      saveLocal(); render();
-    }
+    var nr=Object.assign({},t.repeat,{eindigt:Object.assign({},e,{done:done})});
+    if(fbOk&&fbUser)await update(ref(db,'users/'+fbUser.uid+'/tasks/'+id),{date:next,repeat:nr});
+    else{var i=tasks.findIndex(function(t){return t.id===id;});tasks[i]=Object.assign({},tasks[i],{date:next,repeat:nr});saveLocal();render();}
     return;
   }
-  if (e.type === 'op' && e.op && next > e.op) {
-    if (fbOk && fbUser) await remove(ref(db, 'users/' + fbUser.uid + '/tasks/' + id));
-    else { tasks = tasks.filter(function(t) { return t.id !== id; }); saveLocal(); render(); }
+  if(e.type==='op'&&e.op&&next>e.op){
+    if(fbOk&&fbUser)await remove(ref(db,'users/'+fbUser.uid+'/tasks/'+id));
+    else{tasks=tasks.filter(function(t){return t.id!==id;});saveLocal();render();}
     return;
   }
-  if (fbOk && fbUser) await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { date: next });
-  else {
-    var i2 = tasks.findIndex(function(t) { return t.id === id; });
-    tasks[i2] = Object.assign({}, tasks[i2], { date: next });
-    saveLocal(); render();
-  }
+  if(fbOk&&fbUser)await update(ref(db,'users/'+fbUser.uid+'/tasks/'+id),{date:next});
+  else{var i2=tasks.findIndex(function(t){return t.id===id;});tasks[i2]=Object.assign({},tasks[i2],{date:next});saveLocal();render();}
 }
 
 async function verplaatsEenDagLater(id) {
-  var t = tasks.find(function(t) { return t.id === id; }); if (!t) return;
-  var today = new Date().toISOString().split('T')[0];
+  var t=tasks.find(function(t){return t.id===id;}); if(!t)return;
+  var today=new Date().toISOString().split('T')[0];
   var nieuweDatum;
-  if (!t.date || t.date < today) {
-    nieuweDatum = today;
-  } else {
-    var huidigeDatum = new Date(t.date + 'T12:00:00');
-    huidigeDatum.setDate(huidigeDatum.getDate() + 1);
-    nieuweDatum = huidigeDatum.toISOString().split('T')[0];
-  }
-  if (fbOk && fbUser) {
-    await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { date: nieuweDatum });
-  } else {
-    var i = tasks.findIndex(function(t) { return t.id === id; });
-    if (i >= 0) { tasks[i] = Object.assign({}, tasks[i], { date: nieuweDatum }); saveLocal(); render(); }
-  }
+  if(!t.date||t.date<today){nieuweDatum=today;}
+  else{var d=new Date(t.date+'T12:00:00');d.setDate(d.getDate()+1);nieuweDatum=d.toISOString().split('T')[0];}
+  if(fbOk&&fbUser)await update(ref(db,'users/'+fbUser.uid+'/tasks/'+id),{date:nieuweDatum});
+  else{var i=tasks.findIndex(function(t){return t.id===id;});if(i>=0){tasks[i]=Object.assign({},tasks[i],{date:nieuweDatum});saveLocal();render();}}
 }
 
-async function voltooi(id) {
-  const t = tasks.find(function(t) { return t.id === id; }); if (!t) return;
-  if (!t.repeat || !t.date) { verwijder(id); return; }
-  const e = t.repeat.eindigt || { type: 'nooit' };
-  const next = volgenDatum(t.date, t.repeat);
-  if (e.type === 'na') {
-    const done = (e.done || 0) + 1;
-    if (done >= e.na) { verwijder(id); return; }
-    const nr = Object.assign({}, t.repeat, { eindigt: Object.assign({}, e, { done: done }) });
-    if (fbOk && fbUser) await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { date: next, repeat: nr });
-    else {
-      const i = tasks.findIndex(function(t) { return t.id === id; });
-      tasks[i] = Object.assign({}, tasks[i], { date: next, repeat: nr });
-      saveLocal(); render();
-    }
-    return;
-  }
-  if (e.type === 'op' && e.op && next > e.op) { verwijder(id); return; }
-  if (fbOk && fbUser) await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + id), { date: next });
-  else {
-    const i = tasks.findIndex(function(t) { return t.id === id; });
-    tasks[i] = Object.assign({}, tasks[i], { date: next });
-    saveLocal(); render();
-  }
-}
-
-function volgenDatum(dateStr, repeat) {
-  if (!repeat) return null;
-  const type = repeat.type, iv = repeat.interval || 1;
-  const d = new Date(dateStr + 'T12:00:00');
-  if (type === 'day') {
-    d.setDate(d.getDate() + iv);
-  } else if (type === 'week') {
-    const wds = (repeat.weekdays || []).slice().sort(function(a,b) { return a-b; });
-    if (!wds.length) { d.setDate(d.getDate() + 7 * iv); }
-    else {
-      const cur = d.getDay(); let nxt = null;
-      for (let i = 0; i < wds.length; i++) { if (wds[i] > cur) { nxt = wds[i]; break; } }
-      if (nxt !== null) d.setDate(d.getDate() + (nxt - cur));
-      else d.setDate(d.getDate() + (7 * iv - cur + wds[0]));
-    }
-  } else if (type === 'month') {
-    const mm = repeat.mmode || 'monthday';
-    if (mm === 'nthweekday') {
-      const wd = parseInt(repeat.nthWd || 1), nth = parseInt(repeat.nth || 1);
-      d.setDate(1); d.setMonth(d.getMonth() + iv);
-      while (d.getDay() !== wd) d.setDate(d.getDate() + 1);
-      if (nth <= 4) { d.setDate(d.getDate() + (nth - 1) * 7); }
-      else {
-        const mo = d.getMonth(); d.setDate(d.getDate() + 28);
-        while (d.getMonth() !== mo) d.setDate(d.getDate() - 1);
-        while (d.getDay() !== wd)   d.setDate(d.getDate() - 1);
-      }
-    } else {
-      const day = parseInt(repeat.maanddag || d.getDate());
-      d.setMonth(d.getMonth() + iv);
-      const max = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
-      d.setDate(Math.min(day, max));
-    }
-  } else if (type === 'year') {
-    d.setFullYear(d.getFullYear() + iv);
-  }
+function volgenDatum(dateStr,repeat){
+  if(!repeat)return null;
+  const type=repeat.type,iv=repeat.interval||1;
+  const d=new Date(dateStr+'T12:00:00');
+  if(type==='day'){d.setDate(d.getDate()+iv);}
+  else if(type==='week'){
+    const wds=(repeat.weekdays||[]).slice().sort(function(a,b){return a-b;});
+    if(!wds.length){d.setDate(d.getDate()+7*iv);}
+    else{const cur=d.getDay();let nxt=null;for(let i=0;i<wds.length;i++){if(wds[i]>cur){nxt=wds[i];break;}}if(nxt!==null)d.setDate(d.getDate()+(nxt-cur));else d.setDate(d.getDate()+(7*iv-cur+wds[0]));}
+  }else if(type==='month'){
+    const mm=repeat.mmode||'monthday';
+    if(mm==='nthweekday'){const wd=parseInt(repeat.nthWd||1),nth=parseInt(repeat.nth||1);d.setDate(1);d.setMonth(d.getMonth()+iv);while(d.getDay()!==wd)d.setDate(d.getDate()+1);if(nth<=4){d.setDate(d.getDate()+(nth-1)*7);}else{const mo=d.getMonth();d.setDate(d.getDate()+28);while(d.getMonth()!==mo)d.setDate(d.getDate()-1);while(d.getDay()!==wd)d.setDate(d.getDate()-1);}}
+    else{const day=parseInt(repeat.maanddag||d.getDate());d.setMonth(d.getMonth()+iv);const max=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();d.setDate(Math.min(day,max));}
+  }else if(type==='year'){d.setFullYear(d.getFullYear()+iv);}
   return d.toISOString().split('T')[0];
 }
-function rLabel(r) {
-  if (!r) return '';
-  const type = r.type, iv = r.interval || 1; let s = '';
-  if      (type === 'day')  s = iv === 1 ? 'dagelijks' : 'elke ' + iv + ' dagen';
-  else if (type === 'year') s = iv === 1 ? 'jaarlijks' : 'elke ' + iv + ' jaar';
-  else if (type === 'week') {
-    const base = iv === 1 ? 'wekelijks' : 'elke ' + iv + ' weken';
-    const days = (r.weekdays || []).map(function(d) { return WDN[d]; }).join(', ');
-    s = days ? base + ' op ' + days : base;
-  } else if (type === 'month') {
-    const base = iv === 1 ? 'maandelijks' : 'elke ' + iv + ' maanden';
-    const mm = r.mmode || 'monthday';
-    if (mm === 'nthweekday') s = base + ', ' + (NTH[(parseInt(r.nth || 1)) - 1] || '') + ' ' + WDN[parseInt(r.nthWd || 1)];
-    else s = base + ', dag ' + (r.maanddag || '?');
-  }
-  const e = r.eindigt || { type: 'nooit' };
-  if (e.type === 'op' && e.op) { const p = e.op.split('-'); s += ' · tot ' + p[2] + '-' + p[1] + '-' + p[0]; }
-  if (e.type === 'na' && e.na) s += ' · ' + (e.na - (e.done || 0)) + 'x resterend';
+
+function rLabel(r){
+  if(!r)return'';
+  const type=r.type,iv=r.interval||1;let s='';
+  if(type==='day')s=iv===1?'dagelijks':'elke '+iv+' dagen';
+  else if(type==='year')s=iv===1?'jaarlijks':'elke '+iv+' jaar';
+  else if(type==='week'){const base=iv===1?'wekelijks':'elke '+iv+' weken';const days=(r.weekdays||[]).map(function(d){return WDN[d];}).join(', ');s=days?base+' op '+days:base;}
+  else if(type==='month'){const base=iv===1?'maandelijks':'elke '+iv+' maanden';const mm=r.mmode||'monthday';if(mm==='nthweekday')s=base+', '+(NTH[(parseInt(r.nth||1))-1]||'')+' '+WDN[parseInt(r.nthWd||1)];else s=base+', dag '+(r.maanddag||'?');}
+  const e=r.eindigt||{type:'nooit'};
+  if(e.type==='op'&&e.op){const p=e.op.split('-');s+=' · tot '+p[2]+'-'+p[1]+'-'+p[0];}
+  if(e.type==='na'&&e.na)s+=' · '+(e.na-(e.done||0))+'x resterend';
   return s;
 }
-function intervalDagen(t) {
-  if (!t.repeat) return 999999;
-  var type = t.repeat.type, iv = t.repeat.interval || 1;
-  if (type === 'day')   return iv;
-  if (type === 'week')  return iv * 7;
-  if (type === 'month') return iv * 30;
-  if (type === 'year')  return iv * 365;
-  return 999999;
+
+function intervalDagen(t){if(!t.repeat)return 999999;var type=t.repeat.type,iv=t.repeat.interval||1;if(type==='day')return iv;if(type==='week')return iv*7;if(type==='month')return iv*30;if(type==='year')return iv*365;return 999999;}
+function alfa(t){return(t.desc||'').toLowerCase();}
+function sortPerDag(arr){return arr.slice().sort(function(a,b){var aS=a.ster?0:1,bS=b.ster?0:1;if(aS!==bS)return aS-bS;var aH=a.repeat?1:0,bH=b.repeat?1:0;if(aH!==bH)return aH-bH;if(!a.repeat)return alfa(a)<alfa(b)?-1:alfa(a)>alfa(b)?1:0;var iA=intervalDagen(a),iB=intervalDagen(b);if(iA!==iB)return iA-iB;return alfa(a)<alfa(b)?-1:alfa(a)>alfa(b)?1:0;});}
+function sortLijst(arr){return arr.slice().sort(function(a,b){var aS=a.ster?0:1,bS=b.ster?0:1;if(aS!==bS)return aS-bS;return alfa(a)<alfa(b)?-1:alfa(a)>alfa(b)?1:0;});}
+
+function render(){
+  const td=new Date().toISOString().split('T')[0];
+  const tm=new Date();tm.setDate(tm.getDate()+1);const morgen=tm.toISOString().split('T')[0];
+  const sq=zoek.toLowerCase();
+  const all=sq?tasks.filter(function(t){return(t.desc||'').toLowerCase().indexOf(sq)>=0;}):tasks;
+  var upcoming=all.filter(function(t){return t.date&&t.date>=td;}).sort(function(a,b){return a.date<b.date?-1:1;});
+  var archive=all.filter(function(t){return t.date&&t.date<td;}).sort(function(a,b){return a.date>b.date?-1:1;});
+  var nodate=sortLijst(all.filter(function(t){return!t.date;}));
+  ge('n-up').textContent=upcoming.length;ge('n-ar').textContent=archive.length;ge('n-nd').textContent=nodate.length;
+  const m=ge('main');
+  if(tab==='upcoming')m.innerHTML=gegroepeerd(upcoming,td,morgen,false);
+  else if(tab==='archive')m.innerHTML=gegroepeerd(archive,td,morgen,true);
+  else m.innerHTML=flatList(nodate);
+  m.querySelectorAll('.chk').forEach(function(b){b.addEventListener('click',function(){var id=b.dataset.id;var t=tasks.find(function(t){return t.id===id;});if(!t)return;if(!t.repeat||!t.date){if(!confirm('Taak verwijderen?'))return;}var rij=b.closest('.tr');b.classList.add('gedaan');b.textContent='\u2713';if(rij){rij.style.maxHeight=rij.offsetHeight+'px';setTimeout(function(){rij.classList.add('fade-out');},200);}setTimeout(function(){voltooidZonderConfirm(id);},650);});});
+  m.querySelectorAll('.star-btn').forEach(function(b){b.addEventListener('click',function(){toggleSter(b.dataset.id);});});
+  m.querySelectorAll('.clock-btn').forEach(function(b){b.addEventListener('click',function(){verplaatsEenDagLater(b.dataset.id);});});
+  m.querySelectorAll('.tb').forEach(function(b){b.addEventListener('click',function(){openEdit(b.dataset.id);});});
 }
-function alfa(t) { return (t.desc || '').toLowerCase(); }
-function sortPerDag(arr) {
-  return arr.slice().sort(function(a, b) {
-    var aSter = a.ster ? 0 : 1, bSter = b.ster ? 0 : 1;
-    if (aSter !== bSter) return aSter - bSter;
-    var aHerh = a.repeat ? 1 : 0, bHerh = b.repeat ? 1 : 0;
-    if (aHerh !== bHerh) return aHerh - bHerh;
-    if (!a.repeat) return alfa(a) < alfa(b) ? -1 : alfa(a) > alfa(b) ? 1 : 0;
-    var iA = intervalDagen(a), iB = intervalDagen(b);
-    if (iA !== iB) return iA - iB;
-    return alfa(a) < alfa(b) ? -1 : alfa(a) > alfa(b) ? 1 : 0;
-  });
-}
-function sortLijst(arr) {
-  return arr.slice().sort(function(a, b) {
-    var aSter = a.ster ? 0 : 1, bSter = b.ster ? 0 : 1;
-    if (aSter !== bSter) return aSter - bSter;
-    return alfa(a) < alfa(b) ? -1 : alfa(a) > alfa(b) ? 1 : 0;
-  });
-}
-function render() {
-  const td = new Date().toISOString().split('T')[0];
-  const tm = new Date(); tm.setDate(tm.getDate() + 1);
-  const morgen = tm.toISOString().split('T')[0];
-  const sq = zoek.toLowerCase();
-  const all = sq ? tasks.filter(function(t) { return (t.desc || '').toLowerCase().indexOf(sq) >= 0; }) : tasks;
-  var upcoming = all.filter(function(t) { return t.date && t.date >= td; }).sort(function(a,b) { return a.date < b.date ? -1 : 1; });
-  var archive  = all.filter(function(t) { return t.date && t.date < td;  }).sort(function(a,b) { return a.date > b.date ? -1 : 1; });
-  var nodate   = sortLijst(all.filter(function(t) { return !t.date; }));
-  ge('n-up').textContent = upcoming.length;
-  ge('n-ar').textContent = archive.length;
-  ge('n-nd').textContent = nodate.length;
-  const m = ge('main');
-  if      (tab === 'upcoming') m.innerHTML = gegroepeerd(upcoming, td, morgen, false);
-  else if (tab === 'archive')  m.innerHTML = gegroepeerd(archive,  td, morgen, true);
-  else                         m.innerHTML = flatList(nodate);
-  m.querySelectorAll('.chk').forEach(function(b) {
-    b.addEventListener('click', function() {
-      var id = b.dataset.id;
-      var t = tasks.find(function(t) { return t.id === id; });
-      if (!t) return;
-      if (!t.repeat || !t.date) { if (!confirm('Taak verwijderen?')) return; }
-      var rij = b.closest('.tr');
-      b.classList.add('gedaan'); b.textContent = '\u2713';
-      if (rij) { rij.style.maxHeight = rij.offsetHeight + 'px'; setTimeout(function() { rij.classList.add('fade-out'); }, 200); }
-      setTimeout(function() { voltooidZonderConfirm(id); }, 650);
-    });
-  });
-  m.querySelectorAll('.star-btn').forEach(function(b) { b.addEventListener('click', function() { toggleSter(b.dataset.id); }); });
-  m.querySelectorAll('.clock-btn').forEach(function(b) { b.addEventListener('click', function() { verplaatsEenDagLater(b.dataset.id); }); });
-  m.querySelectorAll('.tb').forEach(function(b) { b.addEventListener('click', function() { openEdit(b.dataset.id); }); });
-}
-function klokIcoon() {
-  return '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';
-}
-function sterIcoon(on) {
-  return on
-    ? '<svg width="22" height="22" viewBox="0 0 24 24" fill="#4fc3f7" stroke="#4fc3f7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>'
-    : '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
-}
-function rij(t) {
-  const rl = rLabel(t.repeat);
-  const repIcoon = t.repeat ? '<span class="rep-ic">⇄</span>' : '';
-  const metaStr = (rl || repIcoon) ? '<div class="tmeta">' + repIcoon + (rl ? '<span class="tag">' + esc(rl) + '</span>' : '') + '</div>' : '';
-  return '<div class="tr">' +
-    '<div class="chk" data-id="' + t.id + '"></div>' +
-    '<div class="tb" data-id="' + t.id + '"><div class="tt">' + esc(t.desc) + '</div>' + metaStr + '</div>' +
-    '<div style="display:flex;flex-direction:row;align-items:center;gap:0">' +
-    '<button class="clock-btn" data-id="' + t.id + '" title="1 dag later">' + klokIcoon() + '</button>' +
-    '<button class="star-btn' + (t.ster ? ' on' : '') + '" data-id="' + t.id + '">' + sterIcoon(t.ster) + '</button>' +
-    '</div></div>';
-}
-function dagLabel(date, td, morgen) {
-  if (date === td)     return '<div class="dh today">Vandaag</div>';
-  if (date === morgen) return '<div class="dh">Morgen</div>';
-  return '<div class="dh">' + dagN(date) + ' ' + fmtD(date) + '</div>';
-}
-function gegroepeerd(lijst, td, morgen, arch) {
-  if (!lijst.length) return '<div class="empty"><div class="ei">' + (arch ? '📂' : '✅') + '</div><p>' +
-    (arch ? 'Geen verlopen taken.' : 'Geen aankomende taken.<br>Tik op + om iets toe te voegen.') + '</p></div>';
-  const gr = {};
-  lijst.forEach(function(t) { if (!gr[t.date]) gr[t.date] = []; gr[t.date].push(t); });
-  return Object.keys(gr).map(function(date) {
-    return '<div class="dg">' + dagLabel(date, td, morgen) + sortPerDag(gr[date]).map(rij).join('') + '</div>';
-  }).join('');
-}
-function flatList(lijst) {
-  if (!lijst.length) return '<div class="empty"><div class="ei">📋</div><p>Geen taken zonder datum.</p></div>';
-  return lijst.map(rij).join('');
-}
-(function() {
-  const sel = ge('f-maanddag');
-  for (let i = 1; i <= 31; i++) { const o = document.createElement('option'); o.value = i; o.textContent = 'Dag ' + i; sel.appendChild(o); }
-})();
-function syncEenheid(type) {
-  ge('f-eenheid').value = type === 'none' ? 'day' : type;
-  ge('hsec').classList.toggle('show', type !== 'none');
-  ge('rg-wd').style.display = type === 'week'  ? 'block' : 'none';
-  ge('rg-mm').style.display = type === 'month' ? 'block' : 'none';
-  if (type === 'week' || type === 'month') updateVanDatum();
-}
-function updateVanDatum() {
-  const dv = ge('f-date').value; if (!dv) return;
-  const d = new Date(dv + 'T12:00:00');
-  const dag = d.getDate(), wd = d.getDay(), nth = Math.min(Math.ceil(dag / 7), 5);
-  ge('f-maanddag').value = dag; ge('f-nth').value = nth; ge('f-nthwd').value = wd;
-}
-function resetForm() {
-  ge('f-rtype').value = 'none'; ge('f-eenheid').value = 'day'; ge('f-interval').value = 1;
-  ge('hsec').classList.remove('show');
-  ge('rg-wd').style.display = 'none'; ge('rg-mm').style.display = 'none';
-  document.querySelectorAll('.wd').forEach(function(b) { b.classList.remove('on'); });
-  ge('mm-md').checked = true; ge('e-nooit').checked = true;
-  ge('f-eindigt-op').value = ''; ge('f-eindigt-na').value = 10;
-}
-function openNieuw() {
-  editId = null;
-  ge('m-title').textContent = 'Nieuwe taak';
-  ge('f-desc').value = '';
-  ge('f-date').value = new Date().toISOString().split('T')[0];
-  resetForm();
-  ge('ov').classList.remove('hidden');
-  setTimeout(function() { ge('f-desc').focus(); }, 60);
-}
-function openEdit(id) {
-  const t = tasks.find(function(t) { return t.id === id; }); if (!t) return;
-  editId = id;
-  ge('m-title').textContent = 'Taak bewerken';
-  ge('f-desc').value = t.desc || '';
-  ge('f-date').value = t.date || '';
-  resetForm();
-  if (t.repeat) vulRepeat(t.repeat);
-  ge('ov').classList.remove('hidden');
-  setTimeout(function() { ge('f-desc').focus(); }, 60);
-}
-function vulRepeat(r) {
-  ge('f-rtype').value = r.type; ge('f-eenheid').value = r.type; ge('f-interval').value = r.interval || 1;
-  syncEenheid(r.type);
-  if (r.type === 'week' && r.weekdays) {
-    r.weekdays.forEach(function(d) { const b = document.querySelector('.wd[data-d="' + d + '"]'); if (b) b.classList.add('on'); });
-  }
-  if (r.type === 'month') {
-    const mm = r.mmode || 'monthday';
-    if (mm === 'monthday')   { ge('mm-md').checked = true;  if (r.maanddag) ge('f-maanddag').value = r.maanddag; }
-    if (mm === 'nthweekday') { ge('mm-nth').checked = true; if (r.nth) ge('f-nth').value = r.nth; if (r.nthWd !== undefined) ge('f-nthwd').value = r.nthWd; }
-  }
-  const e = r.eindigt || { type: 'nooit' };
-  if (e.type === 'nooit') ge('e-nooit').checked = true;
-  if (e.type === 'op')    { ge('e-op').checked = true; if (e.op) ge('f-eindigt-op').value = e.op; }
-  if (e.type === 'na')    { ge('e-na').checked = true; if (e.na) ge('f-eindigt-na').value = e.na; }
-}
-function leesRepeat() {
-  const type = ge('f-rtype').value; if (type === 'none') return null;
-  const repeat = { type: type, interval: Math.max(1, parseInt(ge('f-interval').value) || 1) };
-  if (type === 'week') {
-    const wds = Array.from(document.querySelectorAll('.wd.on')).map(function(b) { return parseInt(b.dataset.d); });
-    repeat.weekdays = wds.length ? wds : [ge('f-date').value ? new Date(ge('f-date').value + 'T12:00:00').getDay() : new Date().getDay()];
-  }
-  if (type === 'month') {
-    const r = document.querySelector('input[name="mmode"]:checked');
-    repeat.mmode = r ? r.value : 'monthday';
-    if (repeat.mmode === 'monthday')   repeat.maanddag = parseInt(ge('f-maanddag').value) || 1;
-    if (repeat.mmode === 'nthweekday') { repeat.nth = parseInt(ge('f-nth').value) || 1; repeat.nthWd = parseInt(ge('f-nthwd').value); }
-  }
-  const er = document.querySelector('input[name="eindigt"]:checked');
-  const etype = er ? er.value : 'nooit';
-  repeat.eindigt = { type: etype };
-  if (etype === 'op') repeat.eindigt.op = ge('f-eindigt-op').value || '';
-  if (etype === 'na') { repeat.eindigt.na = Math.max(1, parseInt(ge('f-eindigt-na').value) || 10); repeat.eindigt.done = 0; }
-  return repeat;
-}
-function sluit() { ge('ov').classList.add('hidden'); }
-function exportTaken() {
-  const data = JSON.stringify(tasks, null, 2);
-  const blob = new Blob([data], { type: 'application/json' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = 'todo-backup-' + new Date().toISOString().split('T')[0] + '.json';
-  a.click(); URL.revokeObjectURL(url);
-  ge('menu-popup').classList.remove('open');
-}
-function importTaken(file) {
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = function(ev) {
-    try {
-      const imported = JSON.parse(ev.target.result);
-      if (!Array.isArray(imported)) { alert('Ongeldig bestand.'); return; }
-      const keuze = confirm(imported.length + ' taken gevonden.\n\nOK = samenvoegen met huidige taken\nAnnuleren = huidige taken vervangen');
-      if (keuze) {
-        const ids = new Set(tasks.map(function(t) { return t.id; }));
-        const nieuw = imported.filter(function(t) { return !ids.has(t.id); });
-        tasks = tasks.concat(nieuw);
-        alert(nieuw.length + ' nieuwe taken toegevoegd.');
-      } else {
-        tasks = imported;
-        alert('Taken vervangen door ' + imported.length + ' geimporteerde taken.');
-      }
-      saveLocal(); render();
-    } catch(err) { alert('Fout bij inlezen: ' + err.message); }
-    ge('btn-import').value = '';
-  };
-  reader.readAsText(file);
-}
-ge('menu-btn').addEventListener('click', function(e) { e.stopPropagation(); ge('menu-popup').classList.toggle('open'); });
-document.addEventListener('click', function() { ge('menu-popup').classList.remove('open'); });
-ge('menu-popup').addEventListener('click', function(e) { e.stopPropagation(); });
-ge('btn-export').addEventListener('click', exportTaken);
-ge('btn-import-trigger').addEventListener('click', function() { ge('menu-popup').classList.remove('open'); ge('btn-import').click(); });
-ge('btn-import').addEventListener('change', function(e) { importTaken(e.target.files[0]); });
-ge('btn-over').addEventListener('click', function() { ge('menu-popup').classList.remove('open'); ge('ov-over').classList.remove('hidden'); });
-ge('over-sluit-x').addEventListener('click', function() { ge('ov-over').classList.add('hidden'); });
-ge('over-sluit-ok').addEventListener('click', function() { ge('ov-over').classList.add('hidden'); });
-ge('ov-over').addEventListener('click', function(e) { if (e.target === ge('ov-over')) ge('ov-over').classList.add('hidden'); });
-ge('add-btn').addEventListener('click', openNieuw);
-ge('btn-cancel').addEventListener('click', sluit);
-ge('ov').addEventListener('click', function(e) { if (e.target === ge('ov')) sluit(); });
-ge('btn-save').addEventListener('click', async function() {
-  const desc = ge('f-desc').value.trim(), date = ge('f-date').value;
-  if (!desc) { alert('Voer een omschrijving in.'); return; }
-  await slaOp({ desc: desc, date: date || '', repeat: leesRepeat() });
+
+function klokIcoon(){return'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>';}
+function sterIcoon(on){return on?'<svg width="22" height="22" viewBox="0 0 24 24" fill="#4fc3f7" stroke="#4fc3f7" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>':'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';}
+function rij(t){const rl=rLabel(t.repeat);const ri=t.repeat?'<span class="rep-ic">⇄</span>':'';const ms=(rl||ri)?'<div class="tmeta">'+ri+(rl?'<span class="tag">'+esc(rl)+'</span>':'')+'</div>':'';return'<div class="tr"><div class="chk" data-id="'+t.id+'"></div><div class="tb" data-id="'+t.id+'"><div class="tt">'+esc(t.desc)+'</div>'+ms+'</div><div style="display:flex;flex-direction:row;align-items:center;gap:0"><button class="clock-btn" data-id="'+t.id+'" title="1 dag later">'+klokIcoon()+'</button><button class="star-btn'+(t.ster?' on':'')+'" data-id="'+t.id+'">'+sterIcoon(t.ster)+'</button></div></div>';}
+function dagLabel(date,td,morgen){if(date===td)return'<div class="dh today">Vandaag</div>';if(date===morgen)return'<div class="dh">Morgen</div>';return'<div class="dh">'+dagN(date)+' '+fmtD(date)+'</div>';}
+function gegroepeerd(lijst,td,morgen,arch){if(!lijst.length)return'<div class="empty"><div class="ei">'+(arch?'📂':'✅')+'</div><p>'+(arch?'Geen verlopen taken.':'Geen aankomende taken.<br>Tik op + om iets toe te voegen.')+'</p></div>';const gr={};lijst.forEach(function(t){if(!gr[t.date])gr[t.date]=[];gr[t.date].push(t);});return Object.keys(gr).map(function(date){return'<div class="dg">'+dagLabel(date,td,morgen)+sortPerDag(gr[date]).map(rij).join('')+'</div>';}).join('');}
+function flatList(lijst){if(!lijst.length)return'<div class="empty"><div class="ei">📋</div><p>Geen taken zonder datum.</p></div>';return lijst.map(rij).join('');}
+
+(function(){const sel=ge('f-maanddag');for(let i=1;i<=31;i++){const o=document.createElement('option');o.value=i;o.textContent='Dag '+i;sel.appendChild(o);}})();
+function syncEenheid(type){ge('f-eenheid').value=type==='none'?'day':type;ge('hsec').classList.toggle('show',type!=='none');ge('rg-wd').style.display=type==='week'?'block':'none';ge('rg-mm').style.display=type==='month'?'block':'none';if(type==='week'||type==='month')updateVanDatum();}
+function updateVanDatum(){const dv=ge('f-date').value;if(!dv)return;const d=new Date(dv+'T12:00:00');const dag=d.getDate(),wd=d.getDay(),nth=Math.min(Math.ceil(dag/7),5);ge('f-maanddag').value=dag;ge('f-nth').value=nth;ge('f-nthwd').value=wd;}
+function resetForm(){ge('f-rtype').value='none';ge('f-eenheid').value='day';ge('f-interval').value=1;ge('hsec').classList.remove('show');ge('rg-wd').style.display='none';ge('rg-mm').style.display='none';document.querySelectorAll('.wd').forEach(function(b){b.classList.remove('on');});ge('mm-md').checked=true;ge('e-nooit').checked=true;ge('f-eindigt-op').value='';ge('f-eindigt-na').value=10;}
+function openNieuw(){editId=null;ge('m-title').textContent='Nieuwe taak';ge('f-desc').value='';ge('f-date').value=new Date().toISOString().split('T')[0];resetForm();ge('ov').classList.remove('hidden');setTimeout(function(){ge('f-desc').focus();},60);}
+function openEdit(id){const t=tasks.find(function(t){return t.id===id;});if(!t)return;editId=id;ge('m-title').textContent='Taak bewerken';ge('f-desc').value=t.desc||'';ge('f-date').value=t.date||'';resetForm();if(t.repeat)vulRepeat(t.repeat);ge('ov').classList.remove('hidden');setTimeout(function(){ge('f-desc').focus();},60);}
+function vulRepeat(r){ge('f-rtype').value=r.type;ge('f-eenheid').value=r.type;ge('f-interval').value=r.interval||1;syncEenheid(r.type);if(r.type==='week'&&r.weekdays){r.weekdays.forEach(function(d){const b=document.querySelector('.wd[data-d="'+d+'"]');if(b)b.classList.add('on');});}if(r.type==='month'){const mm=r.mmode||'monthday';if(mm==='monthday'){ge('mm-md').checked=true;if(r.maanddag)ge('f-maanddag').value=r.maanddag;}if(mm==='nthweekday'){ge('mm-nth').checked=true;if(r.nth)ge('f-nth').value=r.nth;if(r.nthWd!==undefined)ge('f-nthwd').value=r.nthWd;}}const e=r.eindigt||{type:'nooit'};if(e.type==='nooit')ge('e-nooit').checked=true;if(e.type==='op'){ge('e-op').checked=true;if(e.op)ge('f-eindigt-op').value=e.op;}if(e.type==='na'){ge('e-na').checked=true;if(e.na)ge('f-eindigt-na').value=e.na;}}
+function leesRepeat(){const type=ge('f-rtype').value;if(type==='none')return null;const repeat={type:type,interval:Math.max(1,parseInt(ge('f-interval').value)||1)};if(type==='week'){const wds=Array.from(document.querySelectorAll('.wd.on')).map(function(b){return parseInt(b.dataset.d);});repeat.weekdays=wds.length?wds:[ge('f-date').value?new Date(ge('f-date').value+'T12:00:00').getDay():new Date().getDay()];}if(type==='month'){const r=document.querySelector('input[name="mmode"]:checked');repeat.mmode=r?r.value:'monthday';if(repeat.mmode==='monthday')repeat.maanddag=parseInt(ge('f-maanddag').value)||1;if(repeat.mmode==='nthweekday'){repeat.nth=parseInt(ge('f-nth').value)||1;repeat.nthWd=parseInt(ge('f-nthwd').value);}}const er=document.querySelector('input[name="eindigt"]:checked');const etype=er?er.value:'nooit';repeat.eindigt={type:etype};if(etype==='op')repeat.eindigt.op=ge('f-eindigt-op').value||'';if(etype==='na'){repeat.eindigt.na=Math.max(1,parseInt(ge('f-eindigt-na').value)||10);repeat.eindigt.done=0;}return repeat;}
+function sluit(){ge('ov').classList.add('hidden');}
+function exportTaken(){const data=JSON.stringify(tasks,null,2);const blob=new Blob([data],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='todo-backup-'+new Date().toISOString().split('T')[0]+'.json';a.click();URL.revokeObjectURL(url);ge('menu-popup').classList.remove('open');}
+function importTaken(file){if(!file)return;const reader=new FileReader();reader.onload=function(ev){try{const imported=JSON.parse(ev.target.result);if(!Array.isArray(imported)){alert('Ongeldig bestand.');return;}const keuze=confirm(imported.length+' taken gevonden.\n\nOK = samenvoegen\nAnnuleren = vervangen');if(keuze){const ids=new Set(tasks.map(function(t){return t.id;}));const nieuw=imported.filter(function(t){return!ids.has(t.id);});tasks=tasks.concat(nieuw);alert(nieuw.length+' nieuwe taken toegevoegd.');}else{tasks=imported;alert('Taken vervangen door '+imported.length+' geimporteerde taken.');}saveLocal();render();}catch(err){alert('Fout: '+err.message);}ge('btn-import').value='';};reader.readAsText(file);}
+
+ge('menu-btn').addEventListener('click',function(e){e.stopPropagation();ge('menu-popup').classList.toggle('open');});
+document.addEventListener('click',function(){ge('menu-popup').classList.remove('open');});
+ge('menu-popup').addEventListener('click',function(e){e.stopPropagation();});
+ge('btn-export').addEventListener('click',exportTaken);
+ge('btn-import-trigger').addEventListener('click',function(){ge('menu-popup').classList.remove('open');ge('btn-import').click();});
+ge('btn-import').addEventListener('change',function(e){importTaken(e.target.files[0]);});
+ge('btn-over').addEventListener('click',function(){ge('menu-popup').classList.remove('open');ge('ov-over').classList.remove('hidden');});
+ge('over-sluit-x').addEventListener('click',function(){ge('ov-over').classList.add('hidden');});
+ge('over-sluit-ok').addEventListener('click',function(){ge('ov-over').classList.add('hidden');});
+ge('ov-over').addEventListener('click',function(e){if(e.target===ge('ov-over'))ge('ov-over').classList.add('hidden');});
+ge('add-btn').addEventListener('click',openNieuw);
+ge('btn-cancel').addEventListener('click',sluit);
+ge('ov').addEventListener('click',function(e){if(e.target===ge('ov'))sluit();});
+ge('btn-save').addEventListener('click',async function(){
+  const desc=ge('f-desc').value.trim(),date=ge('f-date').value;
+  if(!desc){alert('Voer een omschrijving in.');return;}
+  await slaOp({desc:desc,date:date||'',repeat:leesRepeat()});
   sluit();
-  setTimeout(function() {
-    var alleRijen = document.querySelectorAll('.tr');
-    if (!alleRijen.length) return;
-    var doelDatum = date || '', gevonden = null;
-    if (doelDatum) {
-      document.querySelectorAll('.dh').forEach(function(hdr) {
-        if (!gevonden) {
-          var dg = hdr.closest('.dg');
-          if (dg) {
-            var eersteRij = dg.querySelector('.tr');
-            if (eersteRij) {
-              var id = eersteRij.querySelector('[data-id]');
-              if (id) { var t = tasks.find(function(t) { return t.id === id.dataset.id; }); if (t && t.date === doelDatum) gevonden = hdr; }
-            }
-          }
-        }
-      });
-    }
-    var doel = gevonden || alleRijen[alleRijen.length - 1];
-    if (doel) doel.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, 100);
+  setTimeout(function(){var rijen=document.querySelectorAll('.tr');if(!rijen.length)return;var doel=rijen[rijen.length-1];if(doel)doel.scrollIntoView({behavior:'smooth',block:'center'});},100);
 });
-ge('f-rtype').addEventListener('change', function() { syncEenheid(this.value); });
-ge('f-eenheid').addEventListener('change', function() { ge('f-rtype').value = this.value; syncEenheid(this.value); });
-document.querySelectorAll('.wd').forEach(function(b) { b.addEventListener('click', function() { this.classList.toggle('on'); }); });
-ge('f-date').addEventListener('change', updateVanDatum);
-ge('f-eindigt-op').addEventListener('focus', function() { ge('e-op').checked = true; });
-ge('f-eindigt-na').addEventListener('focus', function() { ge('e-na').checked = true; });
-ge('f-maanddag').addEventListener('click', function() { ge('mm-md').checked = true; });
-ge('f-nth').addEventListener('click', function() { ge('mm-nth').checked = true; });
-ge('f-nthwd').addEventListener('click', function() { ge('mm-nth').checked = true; });
-document.querySelectorAll('.tab').forEach(function(el) {
-  el.addEventListener('click', function() {
-    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
-    this.classList.add('active'); tab = this.dataset.tab; render();
-  });
-});
-ge('q').addEventListener('input', function(e) { zoek = e.target.value; render(); });
-const mf = { name: 'ToDo v3.0', short_name: 'ToDo v3.0', start_url: '.', display: 'standalone',
-  background_color: '#1c1c1e', theme_color: '#1c1c1e',
-  icons: [{ src: "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%234fc3f7'/><text y='.9em' font-size='70' x='15'>%E2%9C%93</text></svg>", sizes: 'any', type: 'image/svg+xml' }] };
-ge('mflink').href = URL.createObjectURL(new Blob([JSON.stringify(mf)], { type: 'application/json' }));
+ge('f-rtype').addEventListener('change',function(){syncEenheid(this.value);});
+ge('f-eenheid').addEventListener('change',function(){ge('f-rtype').value=this.value;syncEenheid(this.value);});
+document.querySelectorAll('.wd').forEach(function(b){b.addEventListener('click',function(){this.classList.toggle('on');});});
+ge('f-date').addEventListener('change',updateVanDatum);
+ge('f-eindigt-op').addEventListener('focus',function(){ge('e-op').checked=true;});
+ge('f-eindigt-na').addEventListener('focus',function(){ge('e-na').checked=true;});
+ge('f-maanddag').addEventListener('click',function(){ge('mm-md').checked=true;});
+ge('f-nth').addEventListener('click',function(){ge('mm-nth').checked=true;});
+ge('f-nthwd').addEventListener('click',function(){ge('mm-nth').checked=true;});
+document.querySelectorAll('.tab').forEach(function(el){el.addEventListener('click',function(){document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});this.classList.add('active');tab=this.dataset.tab;render();});});
+ge('q').addEventListener('input',function(e){zoek=e.target.value;render();});
+const mf={name:'ToDo v3.0',short_name:'ToDo v3.0',start_url:'.',display:'standalone',background_color:'#1c1c1e',theme_color:'#1c1c1e',icons:[{src:"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%234fc3f7'/><text y='.9em' font-size='70' x='15'>%E2%9C%93</text></svg>",sizes:'any',type:'image/svg+xml'}]};
+ge('mflink').href=URL.createObjectURL(new Blob([JSON.stringify(mf)],{type:'application/json'}));
 </script>
 </body>
 </html>
