@@ -545,29 +545,37 @@ ge('btn-save').addEventListener('click',async function(){
   if(!desc){alert('Voer een omschrijving in.');return;}
   const geslagenEditId=editId;
   const geslagenData={desc:desc,date:date||'',repeat:leesRepeat()};
+  // Bewaar scrollpositie voor bewerken
+  const scrollPos=ge('main').scrollTop;
   sluit();
   await slaOp(geslagenData);
-  setTimeout(function(){
-    if(geslagenEditId){
-      // Bewerken: niet scrollen, positie laten staan
-      return;
-    }
-    // Nieuwe taak: zoek de exacte taakrij op basis van omschrijving en datum
-    var doel=null;
-    var alleRijen=document.querySelectorAll('.tr');
-    alleRijen.forEach(function(rij){
-      if(doel)return;
-      var tb=rij.querySelector('.tt');
-      if(tb&&tb.textContent===geslagenData.desc){
-        var idEl=rij.querySelector('[data-id]');
-        if(idEl){
-          var t=tasks.find(function(t){return t.id===idEl.dataset.id;});
-          if(t&&t.date===(geslagenData.date||''))doel=rij;
+  if(geslagenEditId){
+    // Bewerken: herstel scrollpositie na render
+    setTimeout(function(){ ge('main').scrollTop=scrollPos; },50);
+  } else {
+    // Nieuwe taak: wacht op Firebase render en zoek taak op desc+date
+    var pogingen=0;
+    var zoekInterval=setInterval(function(){
+      pogingen++;
+      var doel=null;
+      var alleRijen=document.querySelectorAll('.tr');
+      alleRijen.forEach(function(rij){
+        if(doel)return;
+        var tb=rij.querySelector('.tt');
+        if(tb&&tb.textContent===geslagenData.desc){
+          var idEl=rij.querySelector('[data-id]');
+          if(idEl){
+            var t=tasks.find(function(t){return t.id===idEl.dataset.id;});
+            if(t&&t.date===(geslagenData.date||''))doel=rij;
+          }
         }
+      });
+      if(doel||pogingen>20){
+        clearInterval(zoekInterval);
+        if(doel)doel.scrollIntoView({behavior:'smooth',block:'center'});
       }
-    });
-    if(doel)doel.scrollIntoView({behavior:'smooth',block:'center'});
-  },600);
+    },100);
+  }
 });
 ge('f-rtype').addEventListener('change',function(){syncEenheid(this.value);});
 ge('f-eenheid').addEventListener('change',function(){ge('f-rtype').value=this.value;syncEenheid(this.value);});
