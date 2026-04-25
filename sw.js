@@ -1,4 +1,4 @@
-const CACHE = 'todo-v3.2';
+const CACHE = 'todo-v4.0';
 const BESTANDEN = [
   './',
   './index.html',
