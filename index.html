@@ -155,7 +155,7 @@ textarea.inp{resize:vertical;min-height:64px}
         <div style="width:48px;height:48px;border-radius:12px;background:var(--ac);display:flex;align-items:center;justify-content:center;font-size:26px;color:#1c1c1e;flex-shrink:0">✓</div>
         <div>
           <div style="font-size:20px;font-weight:700;color:var(--tx)">ToDo</div>
-          <div style="font-size:13px;color:var(--mu);margin-top:2px">Versie 4.2</div>
+          <div style="font-size:13px;color:var(--mu);margin-top:2px">Versie 4.3</div>
         </div>
       </div>
       <div style="border-top:1px solid var(--bd);padding-top:12px;font-size:14px;line-height:1.8">
@@ -370,7 +370,10 @@ function loadLocal() {
   autoVooruitschuiven();
   render();
 }
-function saveLocal() { localStorage.setItem('taken_v9', JSON.stringify(tasks)); }
+function saveLocal() {
+  localStorage.setItem('taken_v9', JSON.stringify(tasks));
+  localStorage.setItem('taken_offline_backup', JSON.stringify(tasks));
+}
 function toonNotice() {
   const n = document.createElement('div');
   n.className = 'notice';
@@ -399,18 +402,41 @@ function autoVooruitschuiven() {
 
 async function slaOp(data) {
   if (fbOk && fbUser) {
-    if (editId) {
-      await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + editId), data);
-      return editId;
-    } else {
-      const nieuwRef = push(ref(db, 'users/' + fbUser.uid + '/tasks'));
-      await set(nieuwRef, Object.assign({}, data, { at: Date.now() }));
-      return nieuwRef.key;
+    try {
+      if (editId) {
+        await update(ref(db, 'users/' + fbUser.uid + '/tasks/' + editId), data);
+        return editId;
+      } else {
+        const nieuwRef = push(ref(db, 'users/' + fbUser.uid + '/tasks'));
+        await set(nieuwRef, Object.assign({}, data, { at: Date.now() }));
+        return nieuwRef.key;
+      }
+    } catch(e) {
+      // Offline: sla lokaal op
+      var nieuweId = null;
+      if (editId) {
+        const i = tasks.findIndex(function(t){return t.id===editId;});
+        if(i>=0) tasks[i]=Object.assign({},tasks[i],data);
+        nieuweId = editId;
+      } else {
+        nieuweId = '-offline-' + Date.now();
+        tasks.push(Object.assign({ id: nieuweId, at: Date.now() }, data));
+      }
+      saveLocal(); render();
+      return nieuweId;
     }
   } else {
-    if (editId) { const i = tasks.findIndex(function(t){return t.id===editId;}); if(i>=0)tasks[i]=Object.assign({},tasks[i],data); }
-    else tasks.push(Object.assign({ id: String(Date.now()+Math.random()), at: Date.now() }, data));
+    var nieuweId2 = null;
+    if (editId) {
+      const i = tasks.findIndex(function(t){return t.id===editId;});
+      if(i>=0) tasks[i]=Object.assign({},tasks[i],data);
+      nieuweId2 = editId;
+    } else {
+      nieuweId2 = String(Date.now()+Math.random());
+      tasks.push(Object.assign({ id: nieuweId2, at: Date.now() }, data));
+    }
     saveLocal(); render();
+    return nieuweId2;
   }
 }
 
@@ -596,7 +622,7 @@ ge('f-nth').addEventListener('click',function(){ge('mm-nth').checked=true;});
 ge('f-nthwd').addEventListener('click',function(){ge('mm-nth').checked=true;});
 document.querySelectorAll('.tab').forEach(function(el){el.addEventListener('click',function(){document.querySelectorAll('.tab').forEach(function(t){t.classList.remove('active');});this.classList.add('active');tab=this.dataset.tab;render();});});
 ge('q').addEventListener('input',function(e){zoek=e.target.value;render();});
-const mf={name:'ToDo v4.2',short_name:'ToDo v4.2',start_url:'.',display:'standalone',background_color:'#1c1c1e',theme_color:'#1c1c1e',icons:[{src:"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%234fc3f7'/><text y='.9em' font-size='70' x='15'>%E2%9C%93</text></svg>",sizes:'any',type:'image/svg+xml'}]};
+const mf={name:'ToDo v4.3',short_name:'ToDo v4.3',start_url:'.',display:'standalone',background_color:'#1c1c1e',theme_color:'#1c1c1e',icons:[{src:"data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%234fc3f7'/><text y='.9em' font-size='70' x='15'>%E2%9C%93</text></svg>",sizes:'any',type:'image/svg+xml'}]};
 ge('mflink').href=URL.createObjectURL(new Blob([JSON.stringify(mf)],{type:'application/json'}));
 
 // ── Offline backup laden bij opstarten ───────────────
