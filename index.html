@@ -354,6 +354,9 @@ async function syncOfflineTaken() {
     delete data.id;
     await set(nieuweRef, data);
   }
+  // Verwijder offline taken uit backup zodat ze niet opnieuw worden gesynchroniseerd
+  var schoneBackup = backupTaken.filter(function(t) { return !t.id || t.id.indexOf('-offline-') !== 0; });
+  localStorage.setItem('taken_offline_backup', JSON.stringify(schoneBackup));
   return true;
 }
 
