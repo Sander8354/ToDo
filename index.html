@@ -350,7 +350,9 @@ async function syncOfflineTaken() {
   for (var i = 0; i < offlineTaken.length; i++) {
     var t = offlineTaken[i];
     var nieuweRef = push(takenRef);
-    var data = Object.assign({}, t);
+    var data = JSON.parse(JSON.stringify(t, function(key, val) {
+      return val === undefined ? null : val;
+    }));
     delete data.id;
     await set(nieuweRef, data);
   }
