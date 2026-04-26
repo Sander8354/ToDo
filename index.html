@@ -339,13 +339,12 @@ if (fbOk) {
   });
 }
 
-async function syncOfflineTaken(snap) {
-  // Zoek offline taken (id begint met -offline-)
+async function syncOfflineTaken() {
   var backup = localStorage.getItem('taken_offline_backup');
-  if (!backup) return;
+  if (!backup) return false;
   var backupTaken = JSON.parse(backup);
   var offlineTaken = backupTaken.filter(function(t) { return t.id && t.id.indexOf('-offline-') === 0; });
-  if (!offlineTaken.length) return;
+  if (!offlineTaken.length) return false;
   console.log('Synchroniseer', offlineTaken.length, 'offline taken naar Firebase');
   var takenRef = ref(db, 'users/' + fbUser.uid + '/tasks');
   for (var i = 0; i < offlineTaken.length; i++) {
@@ -355,37 +354,35 @@ async function syncOfflineTaken(snap) {
     delete data.id;
     await set(nieuweRef, data);
   }
+  return true;
 }
 
 function startListen() {
   if (unsub) unsub();
   const takenRef = ref(db, 'users/' + fbUser.uid + '/tasks');
-  var eersteKeer = true;
-  unsub = onValue(takenRef, async function(snap) {
-    if (eersteKeer) {
-      eersteKeer = false;
-      // Sync offline taken naar Firebase voordat we de lijst laden
-      await syncOfflineTaken(snap);
-    }
-    tasks = [];
-    snap.forEach(function(child) {
-      tasks.push(Object.assign({ id: child.key }, child.val()));
-    });
-    // Sla altijd op als offline backup
-    localStorage.setItem('taken_offline_backup', JSON.stringify(tasks));
-    localStorage.setItem('taken_offline_uid', fbUser.uid);
-    console.log('Taken geladen:', tasks.length);
-    autoVooruitschuiven();
-    render();
-  }, function(error) {
-    // Firebase niet bereikbaar: toon offline backup
-    console.log('Firebase offline, laad backup');
-    var backup = localStorage.getItem('taken_offline_backup');
-    if (backup) {
-      tasks = JSON.parse(backup);
+  var gesynchroniseerd = false;
+
+  // Sync offline taken eerst, daarna pas luisteren
+  syncOfflineTaken().then(function(hadOffline) {
+    unsub = onValue(takenRef, function(snap) {
+      tasks = [];
+      snap.forEach(function(child) {
+        tasks.push(Object.assign({ id: child.key }, child.val()));
+      });
+      localStorage.setItem('taken_offline_backup', JSON.stringify(tasks));
+      localStorage.setItem('taken_offline_uid', fbUser.uid);
+      console.log('Taken geladen:', tasks.length);
       autoVooruitschuiven();
       render();
-    }
+    }, function(error) {
+      console.log('Firebase offline, laad backup');
+      var backup = localStorage.getItem('taken_offline_backup');
+      if (backup) {
+        tasks = JSON.parse(backup);
+        autoVooruitschuiven();
+        render();
+      }
+    });
   });
 }
 
