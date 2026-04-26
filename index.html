@@ -340,18 +340,33 @@ if (fbOk) {
 
 function startListen() {
   if (unsub) unsub();
+  // Laad offline backup direct zodat taken zichtbaar zijn tijdens laden
+  var backup = localStorage.getItem('taken_offline_backup');
+  if (backup && !tasks.length) {
+    tasks = JSON.parse(backup);
+    autoVooruitschuiven();
+    render();
+  }
   const takenRef = ref(db, 'users/' + fbUser.uid + '/tasks');
   unsub = onValue(takenRef, function(snap) {
     tasks = [];
     snap.forEach(function(child) {
       tasks.push(Object.assign({ id: child.key }, child.val()));
     });
+    // Sla altijd op als offline backup
+    localStorage.setItem('taken_offline_backup', JSON.stringify(tasks));
     console.log('Taken geladen:', tasks.length);
     autoVooruitschuiven();
     render();
   }, function(error) {
-    console.error('Database fout:', error.code, error.message);
-    alert('Database fout: ' + error.code);
+    // Firebase niet bereikbaar: toon offline backup
+    console.log('Firebase offline, laad backup');
+    var backup = localStorage.getItem('taken_offline_backup');
+    if (backup) {
+      tasks = JSON.parse(backup);
+      autoVooruitschuiven();
+      render();
+    }
   });
 }
 
